@@ -477,7 +477,7 @@ tbody tr.disabled{cursor:not-allowed;opacity:0.45;}
     </div>
     <div class="field" style="margin-bottom:6px;">
       <label>Nominal</label>
-      <input type="number" id="amount-modal-input" min="0" step="1000" inputmode="numeric" placeholder="Contoh: 10000">
+      <input type="text" id="amount-modal-input" inputmode="numeric" autocomplete="off" placeholder="Contoh: 10.000">
       <div class="amount-help">Masukkan nominal yang diterima jika hadir pada tanggal ini.</div>
     </div>
     <div class="btn-row">
@@ -753,7 +753,7 @@ function recordCount(){
 }
 function formatRupiah(value){
   const n=Number(value)||0;
-  return "Rp "+n.toLocaleString("id-ID");
+  return n.toLocaleString("id-ID");
 }
 function renderTable(){
   const monthValue=document.getElementById("input-bulan").value; if(!monthValue)return;
@@ -835,7 +835,7 @@ function openAmountModal(dateKey,record){
 document.getElementById("amount-modal-cancel").addEventListener("click",function(){editingDateKey=null;document.getElementById("amount-modal-overlay").classList.remove("active");});
 document.getElementById("amount-modal-save").addEventListener("click",function(){
   const raw=document.getElementById("amount-modal-input").value.trim();
-  const amount=raw===""?0:Number(raw);
+  const amount=raw===""?0:Number(raw.replace(/[^0-9]/g,""));
   if(!Number.isFinite(amount)||amount<0){showModal("err","Nominal Tidak Valid","Masukkan nominal 0 atau lebih.");return;}
   const dateKey=editingDateKey,existing=normalizeRecord(attendanceCache[dateKey])||{};
   if(!existing.inTime){showModal("err","Belum Hadir","Isi jam masuk terlebih dahulu sebelum menentukan nominal.");return;}
@@ -846,41 +846,31 @@ document.getElementById("amount-modal-save").addEventListener("click",function()
 
 function getExportData(){
   const [y,m]=document.getElementById("input-bulan").value.split("-").map(Number),days=new Date(y,m,0).getDate(),name=currentUserData&&currentUserData.nama?currentUserData.nama:"-";
-  const header=["Nama"],rowIn=[name],rowOut=[name],rowAmount=["Nominal"];let total=0,totalAmount=0;
+  const header=["absensi"],rowAmount=["uang"];let total=0,totalAmount=0;
   for(let d=1;d<=days;d++){
     const k=y+"-"+pad2(m)+"-"+pad2(d),r=normalizeRecord(attendanceCache[k]);
     header.push(String(d));
-    rowIn.push(r?r.inTime||"":"");
-    rowOut.push(r?r.outTime||"":"");
     rowAmount.push(r&&r.inTime?(Number(r.amount)||0):"");
     if(r&&r.inTime){total++;totalAmount+=Number(r.amount)||0;}
   }
-  header.push("Total");rowIn.push(total);rowOut.push("");rowAmount.push(totalAmount);
-  return {header,rowIn,rowOut,rowAmount,name,y,m,total,totalAmount};
+  header.push("total hadir");rowAmount.push(totalAmount);
+  return {header,rowAmount,name,y,m,total,totalAmount};
 }
 document.getElementById("btn-export-excel").addEventListener("click",function(){
   if(typeof XLSX==="undefined"){showModal("err","Gagal Export","Library Excel belum termuat.");return;}
   const d=getExportData();
-  const rows=[
-    ["REKAP ABSENSI",...Array(d.header.length-1).fill("")],
-    d.header,
-    d.rowIn,
-    d.rowOut,
-    d.rowAmount,
-    [],
-    ["Jumlah Hadir",d.total],
-    ["Jumlah Uang",d.totalAmount]
-  ];
+  const rows=[d.header,d.rowAmount];
+  rows[1][rows[1].length-1]=d.totalAmount;
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws["A5"]={v:"Nominal",t:"s"};
   for(let i=1;i<d.rowAmount.length;i++){
-    const ref=XLSX.utils.encode_cell({r:4,c:i});
-    if(ws[ref]&&typeof ws[ref].v==="number") ws[ref].z='Rp #,##0';
+    const ref=XLSX.utils.encode_cell({r:1,c:i});
+    if(ws[ref]&&typeof ws[ref].v==="number") ws[ref].z='#,##0';
   }
-  ws["B8"].z='Rp #,##0';
-  ws["A3"]={v:"Jam Masuk",t:"s"};ws["A4"]={v:"Jam Pulang",t:"s"};
-  ws["A7"]={v:"Jumlah Hadir",t:"s"};ws["A8"]={v:"Jumlah Uang",t:"s"};
-  ws["!cols"]=d.header.map(function(_,i){return {wch:i===0?24:(i===d.header.length-1?15:9)};});
+  ws["A1"]={v:"absensi",t:"s"};
+  ws["A2"]={v:"uang",t:"s"};
+  ws[XLSX.utils.encode_cell({r:0,c:d.header.length-1})]={v:"total hadir",t:"s"};
+  ws[XLSX.utils.encode_cell({r:1,c:d.rowAmount.length-1})].z='#,##0';
+  ws["!cols"]=d.header.map(function(_,i){return {wch:i===0?16:12};});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Absensi");
   XLSX.writeFile(wb,"Absensi_"+d.name.replace(/[^a-z0-9]+/gi,"_")+"_"+d.y+"-"+pad2(d.m)+".xlsx");
 });
@@ -889,8 +879,10 @@ document.getElementById("btn-export-pdf").addEventListener("click",function(){
   const d=getExportData(),doc=new window.jspdf.jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
   doc.setFontSize(15);doc.text("Rekap Absensi "+new Date(d.y,d.m-1,1).toLocaleDateString("id-ID",{month:"long",year:"numeric"}),12,13);
   doc.setFontSize(10);doc.text("Nama: "+d.name,12,19);
-  doc.autoTable({head:[d.header],body:[["Jam Masuk",...d.rowIn.slice(1,-1),d.total],["Jam Pulang",...d.rowOut.slice(1,-1),""],["Nominal",...d.rowAmount.slice(1,-1),d.totalAmount]],startY:24,theme:"grid",styles:{fontSize:6.5,cellPadding:1.7,halign:"center"},headStyles:{fontSize:6.5},columnStyles:{0:{halign:"left",cellWidth:28},[d.header.length-1]:{cellWidth:20}}});
-  const y=doc.lastAutoTable.finalY+8;doc.setFontSize(10);doc.text("Jumlah Hadir: "+d.total+" hari",12,y);doc.text("Jumlah Uang: "+formatRupiah(d.totalAmount),12,y+6);
+  const dayValues=d.rowAmount.slice(1,-1);
+  const attendanceRow=["absensi",...dayValues.map(function(v){return v!==""?"✓":""}),d.total];
+  const moneyRow=["uang",...dayValues.map(function(v){return v!==""?Number(v).toLocaleString("id-ID"):""}),d.totalAmount.toLocaleString("id-ID")];
+  doc.autoTable({head:[d.header],body:[attendanceRow,moneyRow],startY:24,theme:"grid",styles:{fontSize:7,cellPadding:1.8,halign:"center"},headStyles:{fontSize:7},columnStyles:{0:{halign:"left",cellWidth:28},[d.header.length-1]:{cellWidth:25}}});
   doc.save("Absensi_"+d.name.replace(/[^a-z0-9]+/gi,"_")+"_"+d.y+"-"+pad2(d.m)+".pdf");
 });
 
