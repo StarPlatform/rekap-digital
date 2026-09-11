@@ -846,30 +846,32 @@ document.getElementById("amount-modal-save").addEventListener("click",function()
 
 function getExportData(){
   const [y,m]=document.getElementById("input-bulan").value.split("-").map(Number),days=new Date(y,m,0).getDate(),name=currentUserData&&currentUserData.nama?currentUserData.nama:"-";
-  const header=["absensi"],rowAmount=["uang"];let total=0,totalAmount=0;
+  const header=["nama"],rowHadir=["hadir"],rowUang=["uang"];let total=0,totalAmount=0;
   for(let d=1;d<=days;d++){
     const k=y+"-"+pad2(m)+"-"+pad2(d),r=normalizeRecord(attendanceCache[k]);
     header.push(String(d));
-    rowAmount.push(r&&r.inTime?(Number(r.amount)||0):"");
+    rowHadir.push(r&&r.inTime?"hadir":"");
+    rowUang.push(r&&r.inTime?(Number(r.amount)||0):"");
     if(r&&r.inTime){total++;totalAmount+=Number(r.amount)||0;}
   }
-  header.push("total hadir");rowAmount.push(totalAmount);
-  return {header,rowAmount,name,y,m,total,totalAmount};
+  header.push("rekapan");rowHadir.push(total);rowUang.push(totalAmount);
+  return {header,rowHadir,rowUang,name,y,m,total,totalAmount};
 }
 document.getElementById("btn-export-excel").addEventListener("click",function(){
   if(typeof XLSX==="undefined"){showModal("err","Gagal Export","Library Excel belum termuat.");return;}
   const d=getExportData();
-  const rows=[d.header,d.rowAmount];
-  rows[1][rows[1].length-1]=d.totalAmount;
+  const rows=[d.header,d.rowHadir,d.rowUang];
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  for(let i=1;i<d.rowAmount.length;i++){
-    const ref=XLSX.utils.encode_cell({r:1,c:i});
+  for(let i=1;i<d.rowUang.length;i++){
+    const ref=XLSX.utils.encode_cell({r:2,c:i});
     if(ws[ref]&&typeof ws[ref].v==="number") ws[ref].z='#,##0';
   }
-  ws["A1"]={v:"absensi",t:"s"};
-  ws["A2"]={v:"uang",t:"s"};
-  ws[XLSX.utils.encode_cell({r:0,c:d.header.length-1})]={v:"total hadir",t:"s"};
-  ws[XLSX.utils.encode_cell({r:1,c:d.rowAmount.length-1})].z='#,##0';
+  ws["A1"]={v:"nama",t:"s"};
+  ws["A2"]={v:"hadir",t:"s"};
+  ws["A3"]={v:"uang",t:"s"};
+  ws[XLSX.utils.encode_cell({r:0,c:d.header.length-1})]={v:"rekapan",t:"s"};
+  ws[XLSX.utils.encode_cell({r:1,c:d.rowHadir.length-1})]={v:d.total,t:"n"};
+  ws[XLSX.utils.encode_cell({r:2,c:d.rowUang.length-1})]={v:d.totalAmount,t:"n",z:'#,##0'};
   ws["!cols"]=d.header.map(function(_,i){return {wch:i===0?16:12};});
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Absensi");
   XLSX.writeFile(wb,"Absensi_"+d.name.replace(/[^a-z0-9]+/gi,"_")+"_"+d.y+"-"+pad2(d.m)+".xlsx");
@@ -879,9 +881,8 @@ document.getElementById("btn-export-pdf").addEventListener("click",function(){
   const d=getExportData(),doc=new window.jspdf.jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
   doc.setFontSize(15);doc.text("Rekap Absensi "+new Date(d.y,d.m-1,1).toLocaleDateString("id-ID",{month:"long",year:"numeric"}),12,13);
   doc.setFontSize(10);doc.text("Nama: "+d.name,12,19);
-  const dayValues=d.rowAmount.slice(1,-1);
-  const attendanceRow=["absensi",...dayValues.map(function(v){return v!==""?"✓":""}),d.total];
-  const moneyRow=["uang",...dayValues.map(function(v){return v!==""?Number(v).toLocaleString("id-ID"):""}),d.totalAmount.toLocaleString("id-ID")];
+  const attendanceRow=["hadir",...d.rowHadir.slice(1,-1),d.total];
+  const moneyRow=["uang",...d.rowUang.slice(1,-1).map(function(v){return v!==""?Number(v).toLocaleString("id-ID"):""}),d.totalAmount.toLocaleString("id-ID")];
   doc.autoTable({head:[d.header],body:[attendanceRow,moneyRow],startY:24,theme:"grid",styles:{fontSize:7,cellPadding:1.8,halign:"center"},headStyles:{fontSize:7},columnStyles:{0:{halign:"left",cellWidth:28},[d.header.length-1]:{cellWidth:25}}});
   doc.save("Absensi_"+d.name.replace(/[^a-z0-9]+/gi,"_")+"_"+d.y+"-"+pad2(d.m)+".pdf");
 });
